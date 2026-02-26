@@ -10,11 +10,11 @@ void I2CButtonRGB::add_button_sensor(uint16_t index, binary_sensor::BinarySensor
 }
 
 void I2CButtonRGB::setup() {
-  // I2C/Wire is managed by ESPHome; Wire is available here.
-
+  // WS2812 init
   if (ws2812_pin_ != nullptr) {
     ws2812_pin_->setup();
     ws2812_pin_->pin_mode(gpio::FLAG_OUTPUT);
+
     pixels_.updateLength(max_leds_);
     pixels_.setPin(ws2812_pin_->get_pin());
     pixels_.updateType(NEO_GRB + NEO_KHZ800);
@@ -23,6 +23,7 @@ void I2CButtonRGB::setup() {
     pixels_.show();
   }
 
+  // dynamic addressing trigger pin (active low)
   if (dynamic_address_pin_ != nullptr) {
     dynamic_address_pin_->setup();
     dynamic_address_pin_->pin_mode(gpio::FLAG_INPUT | gpio::FLAG_PULLUP);
@@ -49,13 +50,17 @@ void I2CButtonRGB::update() {
   normal_poll_();
 }
 
+// -------------------------
+// I2C scan/discovery (uses ESPHome bus lock)
+// -------------------------
 void I2CButtonRGB::discover_devices_() {
   button_addresses_.clear();
 
-  // Scan 1..119 like your original sketch
+  // Scan 1..119 like your original sketch.
+  // Use write_readv(addr, nullptr, 0, nullptr, 0) as an ACK probe.
   for (uint8_t addr = 1; addr < 120; addr++) {
-    Wire.beginTransmission(addr);
-    if (Wire.endTransmission() == 0) {
+    auto err = this->bus_->write_readv(addr, nullptr, 0, nullptr, 0);
+    if (err == i2c::ERROR_OK) {
       button_addresses_.push_back(addr);
       delay(2);
     }
@@ -63,18 +68,20 @@ void I2CButtonRGB::discover_devices_() {
   }
 }
 
+// -------------------------
+// Normal polling (reads 1 byte per device)
+// -------------------------
 void I2CButtonRGB::normal_poll_() {
   const uint16_t discovered = button_addresses_.size();
 
   for (uint16_t idx = 0; idx < discovered; idx++) {
     uint8_t addr = button_addresses_[idx];
 
-    Wire.requestFrom((int) addr, 1);
-    if (!Wire.available()) {
+    uint8_t val = 0;
+    auto err = this->bus_->read(addr, &val, 1);
+    if (err != i2c::ERROR_OK) {
       continue;
     }
-
-    uint8_t val = Wire.read();
 
     // Keep semantics consistent with typical pullup buttons:
     // device sends LOW when pressed
@@ -93,20 +100,19 @@ void I2CButtonRGB::normal_poll_() {
 }
 
 // -------------------------
-// Dynamic addressing (no LED policy here)
+// Dynamic addressing
 // -------------------------
-
 void I2CButtonRGB::initiate_dynamic_addressing_() {
   ESP_LOGI(TAG, "Dynamic addressing initiated");
   dynamic_addressing_ = true;
   addresses_requested_ = 0;
-  next_dyn_action_ms_ = 0;
 
   // Reset all currently discovered devices
   for (auto addr : button_addresses_) {
-    Wire.beginTransmission(addr);
-    Wire.write(i2c_message_reset_address_);
-    Wire.endTransmission();
+    uint8_t data = i2c_message_reset_address_;
+    // Equivalent of:
+    // Wire.beginTransmission(addr); Wire.write(reset_msg); Wire.endTransmission();
+    (void) this->bus_->write(addr, &data, 1, true);
     delay(2);
   }
 
@@ -120,28 +126,29 @@ void I2CButtonRGB::dynamic_addressing_step_() {
 
   uint8_t new_address = addresses_requested_ + addresses_start_point_;
 
-  // Ask "requesting address" device to accept new address
-  Wire.beginTransmission(i2c_requesting_address_);
-  Wire.write(i2c_message_request_address_);
-  Wire.write(new_address);
+  // Send request + new address to requesting address
+  // Equivalent of:
+  // Wire.beginTransmission(I2C_REQUESTING_ADDRESS);
+  // Wire.write(REQUEST_MSG); Wire.write(new_address);
+  // if (Wire.endTransmission() == 0) { ... }
+  uint8_t data[2] = {i2c_message_request_address_, new_address};
+  auto err = this->bus_->write(i2c_requesting_address_, data, 2, true);
 
-  if (Wire.endTransmission() == 0) {
+  if (err == i2c::ERROR_OK) {  // same meaning as endTransmission()==0
     ESP_LOGI(TAG, "Assigned address: %u", new_address);
     addresses_requested_++;
-    // Give the target device time to apply address
-    next_dyn_action_ms_ = now + 100;
+    next_dyn_action_ms_ = now + 100;  // give device time to apply address
   } else {
-    // Retry fairly quickly
+    // Retry quickly
     next_dyn_action_ms_ = now + 20;
   }
 
-  // Check if any device still responds on reset address
-  Wire.beginTransmission(i2c_reset_address_);
-  uint8_t resp = Wire.endTransmission();
-
-  if (resp != 0) {
-    // No device left at reset address -> done
-    ESP_LOGI(TAG, "Dynamic addressing finished (reset address not responding, resp=%u)", resp);
+  // Check if any device still responds on reset address.
+  // In original code, endTransmission()==0 means a device still exists at reset address.
+  // Here, ERROR_OK means present; any error means not present -> finish.
+  auto probe = this->bus_->write_readv(i2c_reset_address_, nullptr, 0, nullptr, 0);
+  if (probe != i2c::ERROR_OK) {
+    ESP_LOGI(TAG, "Dynamic addressing finished (reset address not responding, err=%d)", (int) probe);
     dynamic_addressing_ = false;
     addresses_requested_ = 0;
     discover_devices_();
@@ -150,9 +157,8 @@ void I2CButtonRGB::dynamic_addressing_step_() {
 }
 
 // -------------------------
-// LED primitives (no behaviour/policy)
+// LED primitives
 // -------------------------
-
 void I2CButtonRGB::set_pixel(uint16_t index, uint8_t r, uint8_t g, uint8_t b) {
   if (ws2812_pin_ == nullptr) return;
   if (index >= max_leds_) return;
