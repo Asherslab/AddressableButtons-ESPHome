@@ -82,7 +82,7 @@ class I2CButtonRGB : public PollingComponent, public i2c::I2CDevice {
 // -------------------------
 
 template<typename... Ts>
-class SetPixelAction : public esphome::automation::Action<Ts...> {
+class SetPixelAction : public Action<Ts...> {
  public:
   explicit SetPixelAction(I2CButtonRGB *parent) : parent_(parent) {}
   void set_index(esphome::TemplatableValue<uint16_t, Ts...> v) { index_ = v; }
@@ -103,7 +103,7 @@ class SetPixelAction : public esphome::automation::Action<Ts...> {
 };
 
 template<typename... Ts>
-class FillAction : public esphome::automation::Action<Ts...> {
+class FillAction : public Action<Ts...> {
  public:
   explicit FillAction(I2CButtonRGB *parent) : parent_(parent) {}
   void set_r(esphome::TemplatableValue<uint8_t, Ts...> v) { r_ = v; }
@@ -122,7 +122,7 @@ class FillAction : public esphome::automation::Action<Ts...> {
 };
 
 template<typename... Ts>
-class ClearAction : public esphome::automation::Action<Ts...> {
+class ClearAction : public Action<Ts...> {
  public:
   explicit ClearAction(I2CButtonRGB *parent) : parent_(parent) {}
   void play(Ts... x) override { parent_->clear(); }
@@ -132,7 +132,7 @@ class ClearAction : public esphome::automation::Action<Ts...> {
 };
 
 template<typename... Ts>
-class ShowAction : public esphome::automation::Action<Ts...> {
+class ShowAction : public Action<Ts...> {
  public:
   explicit ShowAction(I2CButtonRGB *parent) : parent_(parent) {}
   void play(Ts... x) override { parent_->show(); }
