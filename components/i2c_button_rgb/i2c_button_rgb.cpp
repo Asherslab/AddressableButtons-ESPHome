@@ -66,6 +66,13 @@ void I2CButtonRGB::discover_devices_() {
     }
     delay(2);
   }
+
+
+  // establish baseline state so first press is not lost
+  for (auto &b : bindings_) {
+    b.sensor->publish_state(false);
+    b.last_state = false;
+  }
 }
 
 // -------------------------
