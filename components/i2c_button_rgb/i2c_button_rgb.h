@@ -90,7 +90,7 @@ class SetPixelAction : public Action<Ts...> {
   void set_g(esphome::TemplatableValue<uint8_t, Ts...> v) { g_ = v; }
   void set_b(esphome::TemplatableValue<uint8_t, Ts...> v) { b_ = v; }
 
-  void play(Ts... x) override {
+  void play(const Ts &...x) override {
     parent_->set_pixel(index_.value(x...), r_.value(x...), g_.value(x...), b_.value(x...));
   }
 
@@ -110,7 +110,7 @@ class FillAction : public Action<Ts...> {
   void set_g(esphome::TemplatableValue<uint8_t, Ts...> v) { g_ = v; }
   void set_b(esphome::TemplatableValue<uint8_t, Ts...> v) { b_ = v; }
 
-  void play(Ts... x) override {
+  void play(const Ts &...x) override {
     parent_->fill(r_.value(x...), g_.value(x...), b_.value(x...));
   }
 
@@ -125,7 +125,7 @@ template<typename... Ts>
 class ClearAction : public Action<Ts...> {
  public:
   explicit ClearAction(I2CButtonRGB *parent) : parent_(parent) {}
-  void play(Ts... x) override { parent_->clear(); }
+  void play(const Ts &...x) override { parent_->clear(); }
 
  protected:
   I2CButtonRGB *parent_;
@@ -135,7 +135,7 @@ template<typename... Ts>
 class ShowAction : public Action<Ts...> {
  public:
   explicit ShowAction(I2CButtonRGB *parent) : parent_(parent) {}
-  void play(Ts... x) override { parent_->show(); }
+  void play(const Ts &...x) override { parent_->show(); }
 
  protected:
   I2CButtonRGB *parent_;
